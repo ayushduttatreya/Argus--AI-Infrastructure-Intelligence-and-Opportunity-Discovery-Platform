@@ -5,9 +5,13 @@ Modular monolith FastAPI application.
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from argus.api.health import router as health_router
+from argus.api.missions import router as missions_router
+from argus.api.opportunities import router as opportunities_router
+from argus.api.evidence import router as evidence_router
 from argus.api.middleware import RequestContextMiddleware
 from argus.core.config import settings
 from argus.core.database import check_database_health
@@ -44,6 +48,13 @@ def create_app() -> FastAPI:
     )
 
     # 1. Register Middlewares
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.add_middleware(RequestContextMiddleware)
 
     # 2. Register OpenTelemetry Instrumentation
@@ -95,6 +106,9 @@ def create_app() -> FastAPI:
 
     # 3. Mount Routers
     app.include_router(health_router)
+    app.include_router(missions_router)
+    app.include_router(opportunities_router)
+    app.include_router(evidence_router)
 
     return app
 
