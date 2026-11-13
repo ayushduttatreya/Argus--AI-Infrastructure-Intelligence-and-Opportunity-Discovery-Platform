@@ -11,7 +11,7 @@ from sqlalchemy import text
 from temporalio.client import Client
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from argus.core.config import settings
-from argus.core.database import async_session_factory
+from argus.core.database import dispatcher_session_factory
 from argus.core.logging import logger
 from argus.orchestration.contracts import MissionWorkflowInput
 from argus.orchestration.workflows.mission_workflow import ResearchMissionWorkflow
@@ -25,11 +25,13 @@ class OutboxDispatcher:
     def __init__(
         self,
         temporal_client: Client,
+        session_factory=None,
         batch_size: int = 10,
         max_retries: int = 5,
         poll_interval_seconds: float = 1.0,
     ) -> None:
         self.temporal_client = temporal_client
+        self.session_factory = session_factory or dispatcher_session_factory
         self.batch_size = batch_size
         self.max_retries = max_retries
         self.poll_interval = poll_interval_seconds
@@ -143,11 +145,8 @@ class OutboxDispatcher:
         Returns the number of events dispatched.
         """
         dispatched_count = 0
-        async with async_session_factory() as session:
+        async with self.session_factory() as session:
             async with session.begin():
-                # Allow dispatcher to select cross-tenant outbox items
-                await session.execute(text("SET LOCAL app.is_dispatcher = 'true'"))
-
                 # Lock eligible pending records
                 select_sql = text(
                     """
