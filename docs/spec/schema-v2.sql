@@ -591,11 +591,40 @@ BEGIN
     END LOOP;
 END $$;
 
--- Allow system outbox dispatcher to select and lease cross-tenant outbox events
+-- Dedicated dispatcher and application tenant isolation policies on workflow_outbox
+-- ------------------------------------------------------------------------------
+-- 10. Role Privileges & Outbox Dispatcher Security Policies
+-- ------------------------------------------------------------------------------
+-- argus_dispatcher has strictly column-level UPDATE privileges on workflow_outbox:
+-- GRANT SELECT ON workflow_outbox TO argus_dispatcher;
+-- GRANT UPDATE (status, retry_count, last_attempt_at, error_message, dispatched_at) ON workflow_outbox TO argus_dispatcher;
+-- GRANT SELECT (id, org_id) ON research_missions TO argus_dispatcher;
+-- GRANT UPDATE (temporal_workflow_id, temporal_run_id, updated_at) ON research_missions TO argus_dispatcher;
+
 DROP POLICY IF EXISTS tenant_isolation_policy ON workflow_outbox;
 CREATE POLICY tenant_isolation_policy ON workflow_outbox
     FOR ALL
-    USING (
-        org_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
-        OR current_setting('app.is_dispatcher', true) = 'true'
-    );
+    TO argus_app, postgres
+    USING (org_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid)
+    WITH CHECK (org_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid);
+
+DROP POLICY IF EXISTS dispatcher_outbox_policy ON workflow_outbox;
+CREATE POLICY dispatcher_outbox_policy ON workflow_outbox
+    FOR ALL
+    TO argus_dispatcher
+    USING (true)
+    WITH CHECK (status IN ('pending', 'dispatched', 'failed'));
+
+-- Dispatcher mission correlation update policy (scoped to column-level privileges)
+DROP POLICY IF EXISTS dispatcher_mission_select_policy ON research_missions;
+CREATE POLICY dispatcher_mission_select_policy ON research_missions
+    FOR SELECT
+    TO argus_dispatcher
+    USING (true);
+
+DROP POLICY IF EXISTS dispatcher_mission_update_policy ON research_missions;
+CREATE POLICY dispatcher_mission_update_policy ON research_missions
+    FOR UPDATE
+    TO argus_dispatcher
+    USING (true)
+    WITH CHECK (true);
