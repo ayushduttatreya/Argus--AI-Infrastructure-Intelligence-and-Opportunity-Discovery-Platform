@@ -1,0 +1,741 @@
+openapi: 3.1.0
+info:
+  title: ARGUS Intelligence API
+  version: 1.0.0
+  description: >
+    Production REST API for ARGUS: An evidence-driven AI research and opportunity
+    discovery platform powered by 8 specialist agents, Temporal workflows, and pgvector.
+    Follows OpenAPI 3.1 specifications with strict idempotency, tenant scoping, and SSE streaming.
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local Development Server
+
+security:
+  - BearerAuth: []
+
+paths:
+  /health:
+    get:
+      summary: System Health & Readiness Check
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: System operational status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /research-missions:
+    post:
+      summary: Submit a New Research Mission
+      description: >
+        Validates request parameters, evaluates mandatory Idempotency-Key within tenant scope,
+        records the workflow-start intent in the transactional outbox, and returns 202 Accepted.
+        If an identical payload is submitted with the same Idempotency-Key, the existing mission
+        is replayed. If a different payload is submitted with the same key, a 409 Conflict is returned.
+      operationId: createResearchMission
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 255
+            example: "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+          description: Client-generated unique token scoped to the organization to enforce idempotency.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMissionRequest'
+      responses:
+        '202':
+          description: Mission accepted for asynchronous processing
+          headers:
+            Location:
+              schema:
+                type: string
+                example: "/api/v1/research-missions/9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MissionSummary'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '409':
+          description: Idempotency conflict — key already used with different request parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    get:
+      summary: List Research Missions
+      operationId: listResearchMissions
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/MissionStatus'
+      responses:
+        '200':
+          description: Paginated mission summaries
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - items
+                  - total
+                  - limit
+                  - offset
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MissionSummary'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /research-missions/{mission_id}:
+    get:
+      summary: Get Mission Details & Execution Status
+      operationId: getResearchMission
+      parameters:
+        - name: mission_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Mission details, agent execution progress, and coverage metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MissionDetail'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /research-missions/{mission_id}/cancel:
+    post:
+      summary: Cancel a Running Research Mission
+      description: Issues a graceful cancellation signal to the governing Temporal workflow.
+      operationId: cancelResearchMission
+      parameters:
+        - name: mission_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '202':
+          description: Cancellation request accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MissionSummary'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          description: Mission cannot be cancelled because it has already finished.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /research-missions/{mission_id}/events:
+    get:
+      summary: Subscribe to Real-Time Mission Progress Events (SSE)
+      description: >
+        Server-Sent Events stream providing real-time progress updates, agent transitions,
+        and evidence discovery notifications.
+        
+        Authentication: Because standard browser EventSource does not support custom headers,
+        clients must use fetch-based streaming with `Authorization: Bearer <token>` or session cookies.
+        
+        Reconnection: Clients must supply `Last-Event-ID` header (or query param) upon reconnecting.
+        The server emits a `: ping` heartbeat event every 15 seconds to keep the connection alive.
+      operationId: streamMissionEvents
+      parameters:
+        - name: mission_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Last-Event-ID
+          in: header
+          required: false
+          schema:
+            type: integer
+          description: Integer event ID of the last processed event for seamless replay.
+      responses:
+        '200':
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/StreamEvent'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /research-missions/{mission_id}/report:
+    get:
+      summary: Retrieve Final Evidence-Backed Intelligence Report
+      operationId: getMissionReport
+      parameters:
+        - name: mission_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Synthesized intelligence report with linked claims and verifiable evidence citations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntelligenceReport'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          description: Mission has not completed or failed before report generation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: OpenID Connect Bearer Token
+
+  responses:
+    BadRequestError:
+      description: Invalid request parameters or schema validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UnauthorizedError:
+      description: Missing, invalid, or expired authentication token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ForbiddenError:
+      description: Caller lacks authorization for the requested resource or organization
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFoundError:
+      description: Requested resource was not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimitError:
+      description: Too many requests. Rate limit budget exceeded.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - version
+        - services
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        version:
+          type: string
+          example: "1.0.0"
+        services:
+          type: object
+          properties:
+            database:
+              type: string
+              example: "connected"
+            redis:
+              type: string
+              example: "connected"
+            temporal:
+              type: string
+              example: "connected"
+            litellm:
+              type: string
+              example: "reachable"
+
+    # Canonical Lowercase Mission Statuses (Reconciled with SQL check constraint)
+    MissionStatus:
+      type: string
+      enum:
+        - pending
+        - running
+        - completed
+        - partial_failure
+        - failed
+        - cancelled
+
+    # Canonical Lowercase Agent Statuses (Reconciled with SQL check constraint)
+    AgentStatus:
+      type: string
+      enum:
+        - pending
+        - running
+        - completed
+        - partial
+        - failed
+        - skipped
+
+    TimeWindow:
+      type: object
+      properties:
+        start_date:
+          type: string
+          format: date-time
+        end_date:
+          type: string
+          format: date-time
+
+    BudgetLimits:
+      type: object
+      properties:
+        max_cost_usd:
+          type: number
+          format: float
+          minimum: 0.10
+          maximum: 50.00
+          default: 5.00
+        max_duration_seconds:
+          type: integer
+          minimum: 30
+          maximum: 1800
+          default: 600
+
+    CreateMissionRequest:
+      type: object
+      required:
+        - target_topic
+      properties:
+        target_topic:
+          type: string
+          minLength: 3
+          maxLength: 255
+          example: "Vector Database Performance & Autonomous Agent Memory Architectures"
+        target_companies:
+          type: array
+          items:
+            type: string
+          default: []
+          example: ["Qdrant", "Pinecone", "Weaviate", "Milvus"]
+        depth:
+          type: string
+          enum: [shallow, standard, exhaustive]
+          default: standard
+        time_window:
+          $ref: '#/components/schemas/TimeWindow'
+        budget_limits:
+          $ref: '#/components/schemas/BudgetLimits'
+        enabled_agents:
+          type: array
+          items:
+            type: string
+            enum:
+              - company_scanner
+              - research_scanner
+              - community_scanner
+              - hiring_intelligence
+              - open_source_intel
+              - market_intelligence
+              - architecture_extractor
+              - negative_space_engine
+          description: List of agent capabilities to execute. Defaults to all 8 agents.
+
+    MissionSummary:
+      type: object
+      required:
+        - id
+        - target_topic
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        target_topic:
+          type: string
+        status:
+          $ref: '#/components/schemas/MissionStatus'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    AgentExecutionState:
+      type: object
+      required:
+        - agent_name
+        - status
+      properties:
+        agent_name:
+          type: string
+        status:
+          $ref: '#/components/schemas/AgentStatus'
+        duration_ms:
+          type: integer
+          nullable: true
+        evidence_items_count:
+          type: integer
+          default: 0
+        error_code:
+          type: string
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
+
+    MissionDetail:
+      allOf:
+        - $ref: '#/components/schemas/MissionSummary'
+        - type: object
+          properties:
+            agents:
+              type: array
+              items:
+                $ref: '#/components/schemas/AgentExecutionState'
+            total_evidence_collected:
+              type: integer
+            coverage_summary:
+              type: object
+              additionalProperties: true
+
+    StreamEvent:
+      type: object
+      required:
+        - event_id
+        - mission_id
+        - event_type
+        - occurred_at
+        - payload
+      properties:
+        event_id:
+          type: integer
+          description: Monotonically increasing ID for Last-Event-ID resumption.
+          example: 142
+        mission_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          enum:
+            - agent.status_changed
+            - evidence.indexed
+            - mission.progress
+            - mission.completed
+            - mission.failed
+            - heartbeat
+        agent_name:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/AgentStatus'
+        occurred_at:
+          type: string
+          format: date-time
+        payload:
+          type: object
+          additionalProperties: true
+
+    EvidenceItem:
+      type: object
+      required:
+        - evidence_id
+        - source_name
+        - canonical_url
+        - content_excerpt
+        - retrieved_at
+      properties:
+        evidence_id:
+          type: string
+          format: uuid
+        source_name:
+          type: string
+          example: "github"
+        canonical_url:
+          type: string
+          format: uri
+          example: "https://github.com/qdrant/qdrant"
+        content_excerpt:
+          type: string
+        retrieved_at:
+          type: string
+          format: date-time
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        content_hash:
+          type: string
+          example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+    ClaimEvidenceLink:
+      type: object
+      required:
+        - evidence_id
+        - quote_text
+        - support_type
+      properties:
+        evidence_id:
+          type: string
+          format: uuid
+        quote_text:
+          type: string
+        start_offset:
+          type: integer
+          nullable: true
+        end_offset:
+          type: integer
+          nullable: true
+        support_type:
+          type: string
+          enum: [supports, refutes, contextualizes]
+
+    Claim:
+      type: object
+      required:
+        - claim_id
+        - statement
+        - claim_type
+        - supporting_evidence
+      properties:
+        claim_id:
+          type: string
+          format: uuid
+        statement:
+          type: string
+        confidence_score:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          nullable: true
+        claim_type:
+          type: string
+          enum: [factual, architectural, capability, limitation, market_signal]
+        supporting_evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClaimEvidenceLink'
+
+    OpportunityScoreBreakdown:
+      type: object
+      required:
+        - scoring_algorithm_version
+        - evidence_confidence_score
+        - market_impact_score
+        - technical_feasibility_score
+        - overall_priority_score
+      properties:
+        scoring_algorithm_version:
+          type: string
+          example: "v1.0.0"
+        evidence_confidence_score:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+        market_impact_score:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+        technical_feasibility_score:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+        overall_priority_score:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+        details:
+          type: object
+          additionalProperties: true
+
+    OpportunityHypothesis:
+      type: object
+      required:
+        - opportunity_id
+        - title
+        - description
+        - gap_analysis
+        - score
+        - supporting_claim_ids
+      properties:
+        opportunity_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        gap_analysis:
+          type: string
+        score:
+          $ref: '#/components/schemas/OpportunityScoreBreakdown'
+        supporting_claim_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+
+    IntelligenceReport:
+      type: object
+      required:
+        - report_id
+        - mission_id
+        - executive_summary
+        - full_report_markdown
+        - claims
+        - opportunities
+        - evidence
+        - coverage_summary
+      properties:
+        report_id:
+          type: string
+          format: uuid
+        mission_id:
+          type: string
+          format: uuid
+        generated_at:
+          type: string
+          format: date-time
+        executive_summary:
+          type: string
+        full_report_markdown:
+          type: string
+        coverage_summary:
+          type: object
+          additionalProperties: true
+        claims:
+          type: array
+          items:
+            $ref: '#/components/schemas/Claim'
+        opportunities:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpportunityHypothesis'
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvidenceItem'
+
+    ErrorResponse:
+      type: object
+      required:
+        - error_code
+        - message
+        - request_id
+      properties:
+        error_code:
+          type: string
+          example: "VALIDATION_FAILED"
+        message:
+          type: string
+          example: "Invalid field 'target_topic': minimum length is 3 characters."
+        request_id:
+          type: string
+          format: uuid
+          example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        trace_id:
+          type: string
+          example: "4bf92f3577b34da6a3ce929d0e0e4736"
+        details:
+          type: object
+          nullable: true
