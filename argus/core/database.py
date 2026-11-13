@@ -31,6 +31,23 @@ async_session_factory = async_sessionmaker(
     autoflush=False,
 )
 
+# Dedicated engine for outbox dispatcher using the narrow-privilege argus_dispatcher role
+dispatcher_engine: AsyncEngine = create_async_engine(
+    settings.DISPATCHER_DATABASE_URL,
+    pool_size=5,
+    max_overflow=2,
+    pool_timeout=settings.DB_POOL_TIMEOUT,
+    pool_recycle=settings.DB_POOL_RECYCLE,
+    echo=settings.DB_ECHO,
+)
+
+dispatcher_session_factory = async_sessionmaker(
+    bind=dispatcher_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autoflush=False,
+)
+
 
 async def check_database_health() -> bool:
     """Executes a simple query to verify database connectivity."""

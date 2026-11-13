@@ -39,6 +39,10 @@ class Settings(BaseSettings):
         default="postgresql+asyncpg://postgres@/argus?host=/tmp",
         description="Database URL for running schema migrations (can use admin role)."
     )
+    DISPATCHER_DATABASE_URL: str = Field(
+        default="postgresql+asyncpg://argus_dispatcher:secure_dispatcher_pass@/argus?host=/tmp",
+        description="Database URL for outbox dispatcher connecting with minimal cross-tenant leasing role."
+    )
     DB_POOL_SIZE: int = 10
     DB_MAX_OVERFLOW: int = 5
     DB_POOL_TIMEOUT: int = 10

@@ -120,6 +120,19 @@ class LiteLLMGatewayClient:
                 headers=headers,
                 json=payload,
             )
+            if resp.status_code == 400 and "already exists" in resp.text:
+                # Key alias already exists: delete old key to re-provision idempotently
+                await client.post(
+                    f"{self.proxy_url}/key/delete",
+                    headers=headers,
+                    json={"key_aliases": [agent_id]},
+                )
+                resp = await client.post(
+                    f"{self.proxy_url}/key/generate",
+                    headers=headers,
+                    json=payload,
+                )
+
             if resp.status_code not in (200, 201):
                 raise RuntimeError(
                     f"Failed to generate LiteLLM virtual key for {agent_id}: {resp.status_code} {resp.text}"

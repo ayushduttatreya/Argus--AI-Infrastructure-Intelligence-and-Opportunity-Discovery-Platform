@@ -95,3 +95,55 @@ async def test_fastapi_trace_propagation():
         resp = await client.get("/health/ready")
         assert resp.status_code == 200
         assert "X-Request-ID" in resp.headers
+
+
+def test_end_to_end_distributed_trace_context_propagation():
+    """
+    Verify complete distributed trace context propagation across pipeline boundaries:
+    FastAPI API Span -> Transactional Outbox Event -> Temporal Workflow ->
+    Activity Execution -> LiteLLM Gateway Span.
+    All spans must share the exact same trace_id, and RedactingSpanProcessor must scrub secrets.
+    """
+    tracer = get_tracer("argus.pipeline")
+
+    # 1. API Boundary (FastAPI request span)
+    with tracer.start_as_current_span("fastapi.post_mission") as api_span:
+        api_trace_id = format(api_span.get_span_context().trace_id, "032x")
+        carrier = {}
+        inject_trace_context(carrier)
+
+        # 2. Outbox Boundary (context serialized into JSON payload)
+        outbox_payload = {
+            "mission_id": "m-123",
+            "target_topic": "Quantum Computing",
+            "trace_context": carrier,
+        }
+
+        # 3. Temporal Workflow Boundary (deserialized and extracted)
+        extracted_ctx = extract_trace_context(outbox_payload["trace_context"])
+        with tracer.start_as_current_span("temporal.workflow.ResearchMissionWorkflow", context=extracted_ctx) as wf_span:
+            wf_trace_id = format(wf_span.get_span_context().trace_id, "032x")
+
+            # 4. Activity Boundary
+            with tracer.start_as_current_span("temporal.activity.execute_stage") as act_span:
+                act_trace_id = format(act_span.get_span_context().trace_id, "032x")
+
+                # 5. LiteLLM Gateway Span with sensitive credentials
+                with tracer.start_as_current_span(
+                    "litellm.completion",
+                    attributes={
+                        "llm.model": "anthropic/claude-3.5-sonnet",
+                        "api_key": "sk-secret-agent-key",
+                        "Authorization": "Bearer sk-litellm-master-key",
+                    },
+                ) as llm_span:
+                    llm_trace_id = format(llm_span.get_span_context().trace_id, "032x")
+
+    # Verify all stages share the exact same distributed trace ID
+    assert api_trace_id == wf_trace_id == act_trace_id == llm_trace_id
+
+    # Verify RedactingSpanProcessor scrubbed sensitive credentials in exported spans
+    spans = in_memory_exporter.get_finished_spans()
+    llm_exported = next(s for s in spans if s.name == "litellm.completion")
+    assert llm_exported.attributes["api_key"] == "[REDACTED]"
+    assert llm_exported.attributes["Authorization"] == "[REDACTED]"
