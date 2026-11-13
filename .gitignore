@@ -1,0 +1,137 @@
+# ==============================================================================
+# ARGUS — .gitignore
+# Comprehensive exclusion of all runtime, cache, secrets, and generated artifacts
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Environment Variables & Secrets (CRITICAL: NEVER COMMIT SECRETS)
+# ------------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+
+# ------------------------------------------------------------------------------
+# 2. Python Bytecode, Packaging & Virtual Environments
+# ------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# ------------------------------------------------------------------------------
+# 3. Testing, Linting & Type Checking Caches
+# ------------------------------------------------------------------------------
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+
+# ------------------------------------------------------------------------------
+# 4. Archives, Bundles & Temporary Files
+# ------------------------------------------------------------------------------
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.bak
+*.tmp
+*.temp
+*~
+tmp/
+temp/
+scratch/
+
+# ------------------------------------------------------------------------------
+# 5. Local Databases, Object Stores & Data Volumes
+# ------------------------------------------------------------------------------
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+data/
+minio-data/
+postgres-data/
+redis-data/
+.temporal/
+temporal-data/
+
+# ------------------------------------------------------------------------------
+# 6. Service & AI Gateway Caches / Logs
+# ------------------------------------------------------------------------------
+*.log
+logs/
+*.pid
+*.seed
+.litellm/
+litellm_cache/
+.langfuse/
+
+# ------------------------------------------------------------------------------
+# 7. Frontend, Node.js & Web Bundles
+# ------------------------------------------------------------------------------
+node_modules/
+.next/
+out/
+.turbo/
+.npm
+.yarn/
+.pnpm-store/
+
+# ------------------------------------------------------------------------------
+# 8. Operating System & IDE Artifacts
+# ------------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.vscode/
+!.vscode/settings.json.example
+.idea/
+*.swp
+*.swo
+.project
+.pydevproject
+.settings/
