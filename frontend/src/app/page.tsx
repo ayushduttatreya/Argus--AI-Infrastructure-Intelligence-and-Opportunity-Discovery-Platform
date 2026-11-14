@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import {
   Compass,
   Sparkles,
@@ -24,6 +25,8 @@ import { SlideOverEvidenceInspector, EvidenceInspectorData } from '../components
 import { IntelligenceOverview } from '../components/IntelligenceOverview';
 import { DiscoveryFeed, OpportunityItem } from '../components/DiscoveryFeed';
 import { OpportunityDossier } from '../components/OpportunityDossier';
+import { LandingPage } from '../components/LandingPage';
+import { AwwwardsPreloader } from '../components/AwwwardsPreloader';
 
 // Authentic empirical opportunities synthesized strictly from real GitHub infrastructure signals
 const SEEDED_OPPORTUNITIES: OpportunityItem[] = [
@@ -258,6 +261,8 @@ const EVIDENCE_DATABASE: Record<string, EvidenceInspectorData> = {
 };
 
 export default function ArgusDashboard() {
+  const [showPreloader, setShowPreloader] = useState<boolean>(true);
+  const [currentView, setCurrentView] = useState<'landing' | 'app'>('landing');
   const [activeTab, setActiveTab] = useState<'overview' | 'feed' | 'dossier' | 'missions'>('overview');
   const [selectedOpportunityId, setSelectedOpportunityId] = useState<string>('opp-1');
   const [inspectorEvidenceId, setInspectorEvidenceId] = useState<string | null>(null);
@@ -265,6 +270,18 @@ export default function ArgusDashboard() {
   const [isSubmittingMission, setIsSubmittingMission] = useState(false);
   const [missionTargetTopic, setMissionTargetTopic] = useState('AI Inference KV-Cache Optimizations');
   const [missionCompanies, setMissionCompanies] = useState('vLLM, SGLang, Triton');
+
+  // If on landing page view, render LandingPage with Awwwards-style preloader
+  if (currentView === 'landing') {
+    return (
+      <>
+        {showPreloader && (
+          <AwwwardsPreloader onComplete={() => setShowPreloader(false)} />
+        )}
+        <LandingPage onEnterPlatform={() => setCurrentView('app')} />
+      </>
+    );
+  }
 
   // Handle open evidence drawer
   const handleOpenEvidence = (id: string) => {
@@ -356,6 +373,20 @@ export default function ArgusDashboard() {
 
           {/* Right Micro-Telemetry & Launch Action */}
           <div className="flex items-center space-x-3">
+            <Link
+              href="/demo"
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-ink-primary text-white text-xs font-medium hover:bg-black transition shadow-sm"
+              title="Launch Autonomous Research Mission"
+            >
+              <span>Execute Mission</span>
+            </Link>
+
+            <button
+              onClick={() => setCurrentView('landing')}
+              className="hidden lg:inline-flex text-[11px] font-mono text-ink-tertiary hover:text-ink-primary px-2 py-1 rounded hover:bg-canvas-light transition"
+            >
+              [← landing]
+            </button>
             <ArgusAsciiTelemetry />
 
             <button
