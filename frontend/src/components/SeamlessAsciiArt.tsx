@@ -1172,12 +1172,18 @@ export const SeamlessAsciiArt: React.FC<{
 
         ctx.save();
         ctx.scale(dpr, dpr);
-        ctx.clearRect(0, 0, rect.width, rect.height);
+
+        // Fill deep obsidian canvas background for maximum color contrast and vibrancy
+        const bgColor = activeSceneRef.current === 'kyoto' ? '#121226' : '#07080f';
+        ctx.fillStyle = bgColor;
+        ctx.fillRect(0, 0, rect.width, rect.height);
 
         const cellW = rect.width / W;
         const cellH = rect.height / H;
 
-        ctx.font = `600 ${Math.max(6, cellH * 0.95)}px "JetBrains Mono", monospace`;
+        // Crisp, high-contrast monospace rendering
+        const fontSize = Math.max(7.5, cellH * 1.05);
+        ctx.font = `700 ${fontSize}px "JetBrains Mono", "Courier New", monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 
@@ -1211,44 +1217,43 @@ export const SeamlessAsciiArt: React.FC<{
   }, [isPlaying]);
 
   return (
-    <div className={`relative w-full overflow-hidden select-none ${className}`}>
-      {/* 
-        NO FRAMES, NO HEAVY BOXES:
-        We apply an elliptical radial vignette plus linear fade masks on all sides
-        so the ASCII characters dissolve seamlessly into the page background with zero sharp borders.
-      */}
+    <div className={`relative w-full rounded-2xl md:rounded-3xl overflow-hidden select-none bg-[#07080f] border border-zinc-800/80 shadow-2xl ${className}`}>
+      {/* Ambient background glow matching scene palette */}
       <div
-        className="w-full h-[340px] sm:h-[480px] md:h-[580px] flex items-center justify-center pointer-events-none"
-        style={{
-          maskImage:
-            'radial-gradient(ellipse 80% 75% at 50% 50%, black 40%, transparent 95%)',
-          WebkitMaskImage:
-            'radial-gradient(ellipse 80% 75% at 50% 50%, black 40%, transparent 95%)',
-        }}
-      >
+        className={`absolute inset-0 pointer-events-none opacity-20 blur-3xl transition-all duration-700 ${
+          scene === 'kyoto'
+            ? 'bg-gradient-to-tr from-purple-900 via-pink-800 to-indigo-900'
+            : 'bg-gradient-to-tr from-amber-900 via-amber-700 to-blue-950'
+        }`}
+      />
+
+      {/* High-Resolution ASCII Canvas */}
+      <div className="relative w-full h-[360px] sm:h-[460px] md:h-[540px] flex items-center justify-center">
         <canvas ref={canvasRef} className="w-full h-full object-contain" />
       </div>
 
-      {/* Floating Minimalist Controller (Translucent glassy pill, completely unobtrusive) */}
-      <div className="absolute bottom-2 right-4 flex items-center space-x-2 font-mono text-[11px] text-ink-tertiary">
-        <span className="hidden sm:inline text-ink-secondary bg-surface-light/70 backdrop-blur-md px-2.5 py-1 rounded-full border border-hairline-light/60 shadow-sm">
-          {scene === 'kyoto' ? 'Kyoto Dusk · 41 Palette Colours' : 'Saturn Rise · 30 Palette Colours'}
+      {/* Floating Modern HUD Controller */}
+      <div className="absolute bottom-3 right-4 flex items-center space-x-2 font-mono text-[11px] text-zinc-300 z-10">
+        <span className="hidden sm:inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-zinc-900/85 backdrop-blur-md border border-zinc-700/60 shadow-lg text-zinc-200">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span>{scene === 'kyoto' ? 'Kyoto Dusk · 41 Palette Colours' : 'Saturn Rise · 30 Palette Colours'}</span>
+          <span className="text-zinc-500">• 200×100 Matrix</span>
         </span>
         <button
           onClick={() => setIsPlaying(!isPlaying)}
-          className="p-1.5 rounded-full bg-surface-light/80 backdrop-blur-md border border-hairline-light hover:text-ink-primary shadow-sm transition pointer-events-auto"
+          className="p-2 rounded-full bg-zinc-900/90 backdrop-blur-md border border-zinc-700/80 hover:border-zinc-500 hover:text-white shadow-lg transition pointer-events-auto"
           title={isPlaying ? 'Pause' : 'Play'}
         >
-          {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+          {isPlaying ? <Pause className="w-3.5 h-3.5 text-zinc-200" /> : <Play className="w-3.5 h-3.5 text-emerald-400" />}
         </button>
         <button
           onClick={() => {
             timeRef.current = 0;
           }}
-          className="p-1.5 rounded-full bg-surface-light/80 backdrop-blur-md border border-hairline-light hover:text-ink-primary shadow-sm transition pointer-events-auto"
-          title="Reset"
+          className="p-2 rounded-full bg-zinc-900/90 backdrop-blur-md border border-zinc-700/80 hover:border-zinc-500 hover:text-white shadow-lg transition pointer-events-auto"
+          title="Reset Animation"
         >
-          <RotateCcw className="w-3.5 h-3.5" />
+          <RotateCcw className="w-3.5 h-3.5 text-zinc-200" />
         </button>
       </div>
     </div>
